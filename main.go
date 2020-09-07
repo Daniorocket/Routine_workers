@@ -12,83 +12,63 @@ import (
 	"github.com/Daniorocket/Routine_workers/numbersql"
 )
 
-type Worker struct {
-	name   string
-	number int
-	active bool
+type Worker interface {
+	Work(int, *sql.DB) error
+	GetName() string
 }
 
-var tableWorkers []Worker
+type FileWorker struct {
+	name string
+}
 
+func (f *FileWorker) Work(number int, db *sql.DB) error {
+	fmt.Println("Read value", number, "from worker file.")
+	fp, err := os.OpenFile("test.txt", os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer fp.Close()
+	newLine := f.GetName() + " " + strconv.Itoa(number)
+	if _, err = fmt.Fprintln(fp, newLine); err != nil {
+		return err
+	}
+	if err = fp.Close(); err != nil {
+		return err
+	}
+	fmt.Println("File appended successfully")
+	return nil
+}
+func (f *FileWorker) GetName() string {
+	return f.name
+}
+
+type DatabaseWorker struct {
+	name string
+}
+
+func (d *DatabaseWorker) Work(number int, db *sql.DB) error {
+	if err := numbersql.InsertRow(db, d.GetName(), number); err != nil {
+		log.Println("Failed to insert row to db: ", err)
+		return err
+	}
+	numbersql.SelectAllData(db)
+	return nil
+}
+func (d *DatabaseWorker) GetName() string {
+	return d.name
+}
 func randomNumber() {
 	for {
 		numbers <- rand.Intn(100000)
 		time.Sleep(time.Second)
 	}
 }
-func worker(id int, numbers <-chan int) {
+func worker(w Worker, numbers <-chan int, db *sql.DB) {
 	fmt.Println()
 	for j := range numbers {
-		s := strconv.Itoa(id)
-		tableWorkers[id] = Worker{"Worker#" + s, j, true}
-		fmt.Println("Worker:", id, ",random number:", j)
-		if id == 0 {
-			workersFile <- tableWorkers[id]
-		}
-		if id == 1 || id == 2 {
-			workersDb <- tableWorkers[id]
-		}
+		w.Work(j, db)
 	}
 	time.Sleep(2 * time.Second)
-}
-func chooseAction(db *sql.DB) {
-	for {
-		select {
-		case <-workersDb:
-			{
-				insertIntoDb(workersDb, db)
-			}
-		case <-workersFile:
-			{
-				insertIntoFile(workersFile)
-			}
-		default:
-			fmt.Println("Can't receive reply from worker channel ")
-		}
-	}
-}
-func insertIntoDb(worker <-chan Worker, db *sql.DB) {
-	for v := range worker {
-		fmt.Println("Read value", v, "from worker db.")
-		if err := numbersql.InsertRow(db, v.name, v.number); err != nil {
-			log.Println("Failed to insert row to db: ", err)
-			return
-		}
-		//numbersql.SelectAllData(db)
-	}
-}
-func insertIntoFile(worker <-chan Worker) {
-	for v := range worker {
-		fmt.Println("Read value", v, "from worker file.")
-		f, err := os.OpenFile("test.txt", os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		newLine := v.name + " " + strconv.Itoa(v.number)
-		_, err = fmt.Fprintln(f, newLine)
-		if err != nil {
-			fmt.Println(err)
-			f.Close()
-			return
-		}
-		err = f.Close()
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		fmt.Println("File appended successfully")
-	}
 }
 
 var numbers = make(chan int)
@@ -98,6 +78,11 @@ var workersFile = make(chan Worker)
 const CountOfWorkers = 3
 
 func main() {
+	workers := []Worker{
+		&DatabaseWorker{name: "DatabaseWorker#1"},
+		&DatabaseWorker{name: "DatabaseWorker#2"},
+		&FileWorker{name: "FileWorker#1"},
+	}
 	db, err := numbersql.CreateDb("numbers")
 	if err != nil {
 		log.Println("Failed to open connection:", err)
@@ -108,13 +93,8 @@ func main() {
 		return
 	}
 	defer db.Close()
-	for i := 0; i < CountOfWorkers; i++ {
-		tableWorkers = append(tableWorkers, Worker{"", 0, false})
-	}
 	for w := 0; w < CountOfWorkers; w++ {
-		go worker(w, numbers)
+		go worker(workers[w], numbers, db)
 	}
-	go chooseAction(db)
 	randomNumber()
-
 }
