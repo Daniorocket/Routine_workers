@@ -13,7 +13,7 @@ import (
 )
 
 type Worker interface {
-	Work(int, *sql.DB) error
+	Work(int) error
 	GetName() string
 }
 
@@ -21,7 +21,7 @@ type FileWorker struct {
 	name string
 }
 
-func (f *FileWorker) Work(number int, db *sql.DB) error {
+func (f *FileWorker) Work(number int) error {
 	fmt.Println("Read value", number, "from worker file.")
 	fp, err := os.OpenFile("test.txt", os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
@@ -30,9 +30,6 @@ func (f *FileWorker) Work(number int, db *sql.DB) error {
 	defer fp.Close()
 	newLine := f.GetName() + " " + strconv.Itoa(number)
 	if _, err = fmt.Fprintln(fp, newLine); err != nil {
-		return err
-	}
-	if err = fp.Close(); err != nil {
 		return err
 	}
 	fmt.Println("File appended successfully")
@@ -44,14 +41,17 @@ func (f *FileWorker) GetName() string {
 
 type DatabaseWorker struct {
 	name string
+	db   *sql.DB
 }
 
-func (d *DatabaseWorker) Work(number int, db *sql.DB) error {
-	if err := numbersql.InsertRow(db, d.GetName(), number); err != nil {
+func (d *DatabaseWorker) Work(number int) error {
+	if err := numbersql.InsertRow(d.db, d.name, number); err != nil {
 		log.Println("Failed to insert row to db: ", err)
 		return err
 	}
-	numbersql.SelectAllData(db)
+	if err := numbersql.SelectAllData(d.db); err != nil {
+		return err
+	}
 	return nil
 }
 func (d *DatabaseWorker) GetName() string {
@@ -63,10 +63,10 @@ func randomNumber() {
 		time.Sleep(time.Second)
 	}
 }
-func worker(w Worker, numbers <-chan int, db *sql.DB) {
+func worker(w Worker, numbers <-chan int) {
 	fmt.Println()
 	for j := range numbers {
-		w.Work(j, db)
+		w.Work(j)
 	}
 	time.Sleep(2 * time.Second)
 }
@@ -78,15 +78,15 @@ var workersFile = make(chan Worker)
 const CountOfWorkers = 3
 
 func main() {
-	workers := []Worker{
-		&DatabaseWorker{name: "DatabaseWorker#1"},
-		&DatabaseWorker{name: "DatabaseWorker#2"},
-		&FileWorker{name: "FileWorker#1"},
-	}
 	db, err := numbersql.CreateDb("numbers")
 	if err != nil {
 		log.Println("Failed to open connection:", err)
 		return
+	}
+	workers := []Worker{
+		&DatabaseWorker{name: "DatabaseWorker#1", db: db},
+		&DatabaseWorker{name: "DatabaseWorker#2", db: db},
+		&FileWorker{name: "FileWorker#1"},
 	}
 	if err = numbersql.InitDb(db); err != nil {
 		log.Println("Failed to init db: ", err)
@@ -94,7 +94,7 @@ func main() {
 	}
 	defer db.Close()
 	for w := 0; w < CountOfWorkers; w++ {
-		go worker(workers[w], numbers, db)
+		go worker(workers[w], numbers)
 	}
 	randomNumber()
 }
