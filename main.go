@@ -32,7 +32,7 @@ func (f *FileWorker) Work(number int) error {
 	if _, err = fmt.Fprintln(fp, newLine); err != nil {
 		return err
 	}
-	fmt.Println("File appended successfully")
+	fmt.Println("File appended successfully.")
 	return nil
 }
 func (f *FileWorker) GetName() string {
@@ -66,14 +66,14 @@ func randomNumber() {
 func worker(w Worker, numbers <-chan int) {
 	fmt.Println()
 	for j := range numbers {
-		w.Work(j)
+		if err := w.Work(j); err != nil {
+			log.Println("Failed to do work:", err)
+		}
 	}
 	time.Sleep(2 * time.Second)
 }
 
 var numbers = make(chan int)
-var workersDb = make(chan Worker)
-var workersFile = make(chan Worker)
 
 const CountOfWorkers = 3
 
