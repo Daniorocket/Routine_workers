@@ -69,19 +69,19 @@ func randomNumber() {
 func addNumberToSecondChannel(number int) {
 	errorChannel <- number
 }
-func worker(w []Worker, numb <-chan int, index int) {
+func worker(w Worker, numb <-chan int) {
 	for {
 		select {
 		case j := <-errorChannel:
 			{
-				if err := w[index].Work(j); err != nil {
+				if err := w.Work(j); err != nil {
 					fmt.Println("Failed to do work:", err)
 					go addNumberToSecondChannel(j)
 				}
 			}
 		case j := <-numb:
 			{
-				if err := w[index].Work(j); err != nil {
+				if err := w.Work(j); err != nil {
 					fmt.Println("Failed to do work:", err)
 					go addNumberToSecondChannel(j)
 				}
@@ -113,7 +113,7 @@ func main() {
 		return
 	}
 	for w := 0; w < CountOfWorkers; w++ {
-		go worker(workers, numbers, w)
+		go worker(workers[w], numbers)
 	}
 	randomNumber()
 }
