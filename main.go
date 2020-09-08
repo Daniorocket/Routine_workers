@@ -67,23 +67,32 @@ func randomNumber() {
 	}
 }
 func addNumberToSecondChannel(number int) {
-	fmt.Println("Number added", number)
-	numbersErr <- number
+	errorChannel <- number
 }
 func worker(w []Worker, numb <-chan int, index int) {
-	for j := range numb {
-		if err := w[index].Work(j); err != nil {
-			fmt.Println("Failed to do work:", err)
-			go addNumberToSecondChannel(j)
-			worker(w, numbersErr, (index+1)%len(w))
-			return
+	for {
+		select {
+		case j := <-errorChannel:
+			{
+				if err := w[index].Work(j); err != nil {
+					fmt.Println("Failed to do work:", err)
+					go addNumberToSecondChannel(j)
+				}
+			}
+		case j := <-numb:
+			{
+				if err := w[index].Work(j); err != nil {
+					fmt.Println("Failed to do work:", err)
+					go addNumberToSecondChannel(j)
+				}
+			}
 		}
+		time.Sleep(2 * time.Second)
 	}
-	time.Sleep(2 * time.Second)
 }
 
 var numbers = make(chan int)
-var numbersErr = make(chan int)
+var errorChannel = make(chan int)
 
 const CountOfWorkers = 3
 
