@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -32,7 +33,7 @@ func (f *FileWorker) Work(number int) error {
 	if _, err = fmt.Fprintln(fp, newLine); err != nil {
 		return err
 	}
-	fmt.Println("File appended successfully.")
+	fmt.Println("File appended successfully with number:", number)
 	return nil
 }
 func (f *FileWorker) GetName() string {
@@ -45,13 +46,15 @@ type DatabaseWorker struct {
 }
 
 func (d *DatabaseWorker) Work(number int) error {
+	fmt.Println("Read value", number, "from worker db.")
+	return errors.New("Failed to save number.. ")
 	if err := numbersql.InsertRow(d.db, d.name, number); err != nil {
 		log.Println("Failed to insert row to db: ", err)
 		return err
 	}
-	if err := numbersql.SelectAllData(d.db); err != nil {
-		return err
-	}
+	// if err := numbersql.SelectAllData(d.db); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 func (d *DatabaseWorker) GetName() string {
@@ -63,17 +66,24 @@ func randomNumber() {
 		time.Sleep(time.Second)
 	}
 }
-func worker(w Worker, numbers <-chan int) {
-	fmt.Println()
-	for j := range numbers {
-		if err := w.Work(j); err != nil {
-			log.Println("Failed to do work:", err)
+func addNumberToSecondChannel(number int) {
+	fmt.Println("Number added", number)
+	numbersErr <- number
+}
+func worker(w []Worker, numb <-chan int, index int) {
+	for j := range numb {
+		if err := w[index].Work(j); err != nil {
+			fmt.Println("Failed to do work:", err)
+			go addNumberToSecondChannel(j)
+			worker(w, numbersErr, (index+1)%len(w))
+			return
 		}
 	}
 	time.Sleep(2 * time.Second)
 }
 
 var numbers = make(chan int)
+var numbersErr = make(chan int)
 
 const CountOfWorkers = 3
 
@@ -83,6 +93,7 @@ func main() {
 		log.Println("Failed to open connection:", err)
 		return
 	}
+	defer db.Close()
 	workers := []Worker{
 		&DatabaseWorker{name: "DatabaseWorker#1", db: db},
 		&DatabaseWorker{name: "DatabaseWorker#2", db: db},
@@ -92,9 +103,8 @@ func main() {
 		log.Println("Failed to init db: ", err)
 		return
 	}
-	defer db.Close()
 	for w := 0; w < CountOfWorkers; w++ {
-		go worker(workers[w], numbers)
+		go worker(workers, numbers, w)
 	}
 	randomNumber()
 }
